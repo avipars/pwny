@@ -1,9 +1,9 @@
+# gps requires gpsdeasy to be installed
 #main.plugins.bt-logger.enabled = true
 #main.plugins.bt-logger.gps = true
 #main.plugins.bt-logger.gps_track = true
 #main.plugins.bt-logger.id_only = true
-#main.plugins.bt-logger.gps_device = "/dev/ttyUSB0"
-
+#main.plugins.bt-logger.display = true
 
 import pwnagotchi, logging, re, subprocess, io, socket, json, time
 import pwnagotchi.plugins as plugins
@@ -14,15 +14,15 @@ from pwnagotchi.ui.view import BLACK
 
 class BTLog(plugins.Plugin):
     __author__ = 'NeonLightning'
-    __version__ = '1.0.1'
+    __version__ = '1.0.4'
     __license__ = 'GPL3'
     __description__ = 'Logs and displays a count of bluetooth devices seen.'
 
     def on_loaded(self):
         self.gps = self.options.get('gps', False)
+        self.display = self.options.get('display', False)
         self.gps_track = self.options.get('gps_track', True)
         self.id_only = self.options.get('id_only', True)
-        self.gps_device = self.options.get('gps_device', "/dev/ttyUSB0")
         self.count = 0
         self.interim_file = '/root/.btinterim.log'
         self.output = '/root/bluetooth.log'
@@ -40,30 +40,33 @@ class BTLog(plugins.Plugin):
 
     def on_unload(self, ui):
         self.running = False
-        with ui._lock:
-            try:
-                ui.remove_element('bt-log')
-            except KeyError:
-                pass
+        if self.display == True:
+            with ui._lock:
+                try:
+                    ui.remove_element('bt-log')
+                except KeyError:
+                    pass
         logging.info('[BT-Log] Unloaded')
         
     def on_ui_setup(self, ui):
-        try:
-            ui.add_element('bt-log', LabeledValue(color=BLACK, label='BT#:', value='0', position=(0, 80),
-                                        label_font=fonts.Small, text_font=fonts.Small))
-        except:
-            logging.error(f"[BT-Log] UI not made")
+        if self.display == True:
+            try:
+                ui.add_element('bt-log', LabeledValue(color=BLACK, label='BT#:', value='0', position=(0, 80),
+                                            label_font=fonts.Small, text_font=fonts.Small))
+            except:
+                logging.error(f"[BT-Log] UI not made")
 
     def on_ui_update(self, ui):
-        try:
-            with open(self.output, 'r') as log_file:
-                if isinstance(log_file, io.TextIOBase):
-                    self.count = sum(1 for line in log_file)
-        except FileNotFoundError:
-            self.count = 0
-            with open(self.output, 'w'):
-                pass
-        ui.set('bt-log', str(self.count))
+        if self.display == True:
+            try:
+                with open(self.output, 'r') as log_file:
+                    if isinstance(log_file, io.TextIOBase):
+                        self.count = sum(1 for line in log_file)
+            except FileNotFoundError:
+                self.count = 0
+                with open(self.output, 'w'):
+                    pass
+            ui.set('bt-log', str(self.count))
         
     def on_webhook(self, path, request):
         logging.info(f"Received webhook request for path: {path}")
@@ -137,22 +140,23 @@ class BTLog(plugins.Plugin):
     def ensure_gpsd_running(self):
         try:
             result = subprocess.run(['pgrep', '-x', 'gpsd'], stdout=subprocess.PIPE)
-            if result.returncode != 0:
-                logging.info("[BT-Log] Starting gpsd...")
-                subprocess.run(['sudo', 'gpsd', self.gps_device, '-F', '/var/run/gpsd.sock'])
-                time.sleep(2)
+            if result.returncode != 0 or not result.returncode == None:
+                return True
+            else:
+                return False
         except Exception as e:
             logging.exception(f"[BT-Log] Error ensuring gpsd is running: {e}")
             return False
-        return True
 
     def get_gps_coordinates(self):
-        try:
-            self.ensure_gpsd_running()
-            gpsd_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            gpsd_socket.connect(('localhost', 2947))
-            gpsd_socket.sendall(b'?WATCH={"enable":true,"json":true}')
-            while True:
+        if not self.ensure_gpsd_running():
+            return 0, 0
+        else:
+            try:
+                gpsd_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                gpsd_socket.connect(('localhost', 2947))
+                gpsd_socket.sendall(b'?WATCH={"enable":true,"json":true}\n')
+                time.sleep(2)
                 data = gpsd_socket.recv(4096).decode('utf-8')
                 for line in data.splitlines():
                     try:
@@ -160,10 +164,14 @@ class BTLog(plugins.Plugin):
                         if report['class'] == 'TPV' and 'lat' in report and 'lon' in report:
                             return report['lat'], report['lon']
                     except json.JSONDecodeError:
-                        continue
-        except Exception as e:
-            logging.error(f"[BT-Log] Error getting GPS coordinates: {e}")
-            return None, None
+                        logging.warning('[BT-log] Failed to decode JSON response.')
+                        return 0, 0
+                return 0, 0
+            except Exception as e:
+                logging.exception(f"[BT-Log] Error getting GPS coordinates: {e}")
+                return 0, 0
+            finally:
+                gpsd_socket.close()
 
     def remove_ansi_escape_sequences(self, text):
         ansi_escape = re.compile(r'\x1B[@-_][0-?]*[ -/]*[@-~]|\x1B\[.*?[@-~]|\^A\^B')
@@ -185,24 +193,25 @@ class BTLog(plugins.Plugin):
                     mac_address = match.group(1)
                     device_name = match.group(2)
                     entry = f"{device_name} {mac_address}"
-                    latitude, longitude = self.get_gps_coordinates()
                     if not self.is_duplicate(entry, interim_file, latitude, longitude) and (not self.id_only or not hex_pattern.search(device_name)):
-                        self.count += 1
-                        log_entry = f"{entry}"
-                        logging.info(f"[BT-Log] {log_entry}")
-                        if self.gps:
-                            if latitude is not None and longitude is not None:
-                                log_entry = f"{log_entry}: {latitude}, {longitude}\n"
+                        latitude, longitude = self.get_gps_coordinates()
+                        if not self.is_duplicate(entry, interim_file, latitude, longitude) and (not self.id_only or not hex_pattern.search(device_name)):
+                            self.count += 1
+                            log_entry = f"{entry}"
+                            logging.info(f"[BT-Log] {log_entry}")
+                            if self.gps:
+                                if latitude is not None and longitude is not None:
+                                    log_entry = f"{log_entry}: {latitude}, {longitude}\n"
+                                else:
+                                    log_entry = f"{entry}: 0, 0\n"
                             else:
-                                log_entry = f"{entry}: 0, 0\n"
-                        else:
-                            log_entry = f"{entry}\n"
-                        log_file.write(log_entry)
-                        log_file.flush()
-                        with open(interim_file, 'a') as interim:
-                            interim.write(f"{entry} {latitude} {longitude}\n")
-                            interim.flush()
-                        self.organize_bluetooth_log(output_file)
+                                log_entry = f"{entry}\n"
+                            log_file.write(log_entry)
+                            log_file.flush()
+                            with open(interim_file, 'a') as interim:
+                                interim.write(f"{entry} {latitude} {longitude}\n")
+                                interim.flush()
+                            self.organize_bluetooth_log(output_file)
 
     def is_duplicate(self, entry, interim_file, latitude, longitude):
         try:
