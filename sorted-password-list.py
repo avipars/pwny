@@ -388,7 +388,7 @@ class SortedPasswordList(plugins.Plugin):
             else:
                 pass
             if not lineswpa and not linesrc and not linespwc:
-                logging.info("[Sorted-Password-List] no potfiles found")
+                #logging.info("[Sorted-Password-List] no potfiles found")
                 return []
             unique_lines = set()
             for line, filename in linespwc:
