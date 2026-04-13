@@ -393,6 +393,9 @@ class SortedPasswordList(plugins.Plugin):
             unique_lines = set()
             for line, filename in linespwc:
                 fields = line.split(":")
+                if len(fields) < 4:
+                    logging.warning(f"[Sorted-Password-List] skipping malformed entry in {filename}: {line.strip()!r}")
+                    continue
                 entry = (fields[1], fields[3], fields[4])
                 if entry not in unique_lines:
                     unique_lines.add(entry)
@@ -409,6 +412,9 @@ class SortedPasswordList(plugins.Plugin):
                     })
             for line, filename in lineswpa:
                 fields = line.split(":")
+                if len(fields) < 4:
+                    logging.warning(f"[Sorted-Password-List] skipping malformed entry in {filename}: {line.strip()!r}")
+                    continue
                 entry = (fields[0], fields[2], fields[3])
                 if entry not in unique_lines:
                     unique_lines.add(entry)
@@ -425,7 +431,9 @@ class SortedPasswordList(plugins.Plugin):
                     })
             for line, filename in linesrc:
                 fields = line.split(":")
-                entry = (fields[1], fields[3], fields[4])
+                if len(fields) < 4:
+                    logging.warning(f"[Sorted-Password-List] skipping malformed entry in {filename}: {line.strip()!r}")
+                    continue                entry = (fields[1], fields[3], fields[4])
                 if entry not in unique_lines:
                     unique_lines.add(entry)
                     passwords.append({
