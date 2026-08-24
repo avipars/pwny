@@ -113,7 +113,6 @@ TEMPLATE = """
     </div>
     Filters
     <div class="button-container">
-        <button id="filter-btn" onclick="filterByExtension('.pcapng')">.pcapng</button>
         <button id="filter-btn" onclick="filterByExtension('.pcap')">.pcap</button>
         <button id="filter-btn" onclick="filterByExtension('.22000')">.22000</button>
         <button id="filter-btn" onclick="filterByExtension('.16800')">.16800</button>
