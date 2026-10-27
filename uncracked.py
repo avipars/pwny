@@ -185,7 +185,7 @@ class Uncracked(plugins.Plugin):
         except Exception as e:
             logging.error(f"[Uncracked] error finding uncracked handshakes: {e}")
         return handshakes
-    
+     
     def compress_and_send(self, extension=None):
         logging.info("[Uncracked] Compressing and sending")
         directory_to_compress = self.config['bettercap']['handshakes']
